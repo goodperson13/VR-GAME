@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<!-- v3 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>VR Shooter</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      background: #000; overflow: hidden; font-family: Arial, sans-serif;
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+    canvas {
+      display: block;
+      position: fixed; top: 0; left: 0;
+      width: 100% !important;
+      /* Use --vh custom property set by JS to match true visible height */
+      height: calc(var(--vh, 1vh) * 100) !important;
+    }
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; justify-content: unset; padding: 0;
+      color: #fff; font-size: 1.1rem;
+      pointer-events: none; z-index: 5;
+      text-shadow: 0 1px 4px #000;
+    }
+    #hud span { background: rgba(0,0,0,0.5); padding: 4px 14px; border-radius: 6px; }
+    #accessHud { top: calc(56px + env(safe-area-inset-top)) !important; }
+    #recenter {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.6); color: #fff; font-size: 0.8rem;
+      padding: 8px 18px; border-radius: 20px; z-index: 5; cursor: pointer;
+      font-family: Arial, sans-serif; border: 1px solid rgba(255,255,255,0.2);
+      -webkit-tap-highlight-color: transparent;
+    }
+    #orientPrompt {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.85); color: #fff; font-size: 1.1rem;
+      padding: 20px 30px; border-radius: 14px; z-index: 10; text-align: center;
+      font-family: Arial, sans-serif; border: 1px solid rgba(255,255,255,0.3);
+      cursor: pointer;
+    }
+    #startBtn {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.85); color: #fff; font-size: 1.4rem;
+      padding: 24px 40px; border-radius: 16px; z-index: 20; text-align: center;
+      font-family: Arial, sans-serif; border: 2px solid rgba(255,255,255,0.5);
+      cursor: pointer; line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Score HUD — centered in each eye half -->
+<div id="hud" style="display:flex;left:0;right:0;justify-content:unset;">
+  <div id="scoreHud" style="display:flex;width:100%;">
+    <div style="width:50%;display:flex;justify-content:center;padding:calc(12px + env(safe-area-inset-top)) 12px 12px;">
+      <span id="scoreDisplay">Score: 0</span>
+    </div>
+    <div style="width:50%;display:flex;justify-content:center;padding:calc(12px + env(safe-area-inset-top)) 12px 12px;">
+      <span id="scoreDisplayR">Score: 0</span>
+    </div>
+  </div>
+</div>
+<div id="accessHud" style="position:fixed;top:56px;left:0;right:0;display:flex;z-index:5;pointer-events:auto;">
+  <!-- Left eye panel — centered -->
+  <div class="eyePanel" style="width:50%;display:flex;justify-content:center;gap:8px;align-items:center;padding:6px 12px;color:#fff;font-size:0.8rem;text-shadow:0 1px 4px #000;flex-wrap:nowrap;">
+    <button class="flatToggleBtn" style="background:rgba(0,0,0,0.6);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.8rem;white-space:nowrap;">Flat: OFF</button>
+    <span style="background:rgba(0,0,0,0.5);padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:6px;white-space:nowrap;">
+      IPD: <span id="ipdLabel">64mm</span>
+      <input id="ipdSlider" type="range" min="0" max="75" value="64" step="1" style="width:70px;">
+    </span>
+  </div>
+  <!-- Right eye panel — centered -->
+  <div class="eyePanel" style="width:50%;display:flex;justify-content:center;gap:8px;align-items:center;padding:6px 12px;color:#fff;font-size:0.8rem;text-shadow:0 1px 4px #000;flex-wrap:nowrap;">
+    <button class="flatToggleBtn" style="background:rgba(0,0,0,0.6);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.8rem;white-space:nowrap;">Flat: OFF</button>
+    <span style="background:rgba(0,0,0,0.5);padding:4px 8px;border-radius:6px;display:flex;align-items:center;gap:6px;white-space:nowrap;">
+      IPD: <span id="ipdLabelR">64mm</span>
+      <input id="ipdSliderR" type="range" min="0" max="75" value="64" step="1" style="width:70px;">
+    </span>
+  </div>
+</div>
+<!-- Bottom bar — recenter left, VR toggle right, split across both eyes -->
+<div id="bottomBar" style="position:fixed;bottom:12px;left:0;right:0;display:none;z-index:5;pointer-events:none;">
+  <!-- Left eye: recenter far-left, VR toggle far-right -->
+  <div style="width:50%;display:flex;justify-content:space-between;padding:0 8px;pointer-events:auto;">
+    <button class="recenterBtn" style="background:rgba(0,0,0,0.6);color:#fff;font-size:0.8rem;padding:8px 14px;border-radius:20px;cursor:pointer;font-family:Arial,sans-serif;border:1px solid rgba(255,255,255,0.2);-webkit-tap-highlight-color:transparent;">Re-center</button>
+    <button class="vrToggleBtn" style="background:rgba(0,0,0,0.6);color:#fff;font-size:0.8rem;padding:8px 14px;border-radius:20px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);-webkit-tap-highlight-color:transparent;">📱 Single</button>
+  </div>
+  <!-- Right eye: recenter far-left, VR toggle far-right -->
+  <div style="width:50%;display:flex;justify-content:space-between;padding:0 8px;pointer-events:auto;">
+    <button class="recenterBtn" style="background:rgba(0,0,0,0.6);color:#fff;font-size:0.8rem;padding:8px 14px;border-radius:20px;cursor:pointer;font-family:Arial,sans-serif;border:1px solid rgba(255,255,255,0.2);-webkit-tap-highlight-color:transparent;">Re-center</button>
+    <button class="vrToggleBtn" style="background:rgba(0,0,0,0.6);color:#fff;font-size:0.8rem;padding:8px 14px;border-radius:20px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);-webkit-tap-highlight-color:transparent;">📱 Single</button>
+  </div>
+</div>
+<button id="recenter" style="display:none"></button>
+<button id="vrToggle" style="display:none;"></button>
+<div id="recenterWrap" style="display:none"></div>
+<div id="vrToggleWrap" style="display:none"></div>
+<div id="orientPrompt" style="display:none">Tap anywhere to enable head tracking</div>
+<div id="startBtn">
+  <div style="font-size:1.3rem;margin-bottom:16px;">🏹 VR Archer</div>
+  <div style="display:flex;gap:12px;justify-content:center;">
+    <button onclick="startGame(false)" style="background:rgba(255,255,255,0.15);color:#fff;font-size:1rem;padding:12px 20px;border-radius:12px;border:1px solid rgba(255,255,255,0.4);cursor:pointer;">📱 Single Screen</button>
+    <button onclick="startGame(true)" style="background:rgba(255,255,255,0.15);color:#fff;font-size:1rem;padding:12px 20px;border-radius:12px;border:1px solid rgba(255,255,255,0.4);cursor:pointer;">👓 VR Headset</button>
+  </div>
+  <div style="font-size:0.7rem;opacity:0.5;margin-top:12px;">Add to Home Screen for fullscreen</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── Renderer ────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'default' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // cap pixel ratio
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.autoClear = false;
+renderer.shadowMap.enabled = false; // disable shadows — big GPU win
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+document.body.appendChild(renderer.domElement);
+
+// ─── Scene ───────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0015); // deep space purple-black
+scene.fog = new THREE.FogExp2(0x0a0015, 0.010);
+
+// Main light — cool blue-white
+const dirLight = new THREE.DirectionalLight(0xaaddff, 2.5);
+dirLight.position.set(10, 20, 8);
+dirLight.castShadow = false;
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 120;
+dirLight.shadow.camera.left = -50;
+dirLight.shadow.camera.right = 50;
+dirLight.shadow.camera.top = 50;
+dirLight.shadow.camera.bottom = -50;
+dirLight.shadow.bias = -0.0003;
+scene.add(dirLight);
+
+// Ambient — dark purple tint
+scene.add(new THREE.HemisphereLight(0x220044, 0x000011, 0.6));
+
+// Neon accent lights
+const neonA = new THREE.PointLight(0x00ffff, 1.5, 30); neonA.position.set(0, 3, 5); scene.add(neonA);
+const neonB = new THREE.PointLight(0xff00ff, 1.2, 30); neonB.position.set(0, 3, -14); scene.add(neonB);
+const neonC = new THREE.PointLight(0x00ff88, 1.2, 30); neonC.position.set(0, 5, -30); scene.add(neonC);
+
+// Stars
+const starGeo = new THREE.BufferGeometry();
+const starVerts = [];
+for (let i = 0; i < 2000; i++) {
+  starVerts.push((Math.random()-0.5)*200, Math.random()*80+5, (Math.random()-0.5)*200);
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.15 })));
+
+// Void floor (dark grid)
+const voidFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(300, 300),
+  new THREE.MeshStandardMaterial({ color: 0x050010, roughness: 1.0, metalness: 0.0 })
+);
+voidFloor.rotation.x = -Math.PI / 2;
+voidFloor.position.y = -8;
+scene.add(voidFloor);
+
+// ─── Camera rig ──────────────────────────────────────────────────────────────
+const cameraRig = new THREE.Object3D();
+scene.add(cameraRig);
+const camL = new THREE.PerspectiveCamera(80, 0.5 * window.innerWidth / window.innerHeight, 0.1, 100);
+const camR = new THREE.PerspectiveCamera(80, 0.5 * window.innerWidth / window.innerHeight, 0.1, 100);
+let ipdMeters = 0.064; // default 64mm eye spacing
+let flatMode = false;  // when true, render camL to both eyes (no 3D, no double vision)
+function setIpd(mm) {
+  ipdMeters = Math.max(0, Math.min(75, mm)) / 1000;
+  camL.position.x = -ipdMeters / 2;
+  camR.position.x =  ipdMeters / 2;
+  const shown = Math.round(ipdMeters * 1000);
+  document.querySelectorAll('#ipdLabel, #ipdLabelR').forEach(el => el.textContent = shown + 'mm');
+  document.querySelectorAll('#ipdSlider, #ipdSliderR').forEach(el => el.value = shown);
+}
+camL.position.set(-ipdMeters / 2, 0, 0);
+camR.position.set( ipdMeters / 2, 0, 0);
+cameraRig.add(camL);
+cameraRig.add(camR);
+
+// ─── Bow ─────────────────────────────────────────────────────────────────────
+// bowPivot follows player position + yaw only (no pitch) so bow never tilts into ground
+const bowPivot = new THREE.Object3D();
+scene.add(bowPivot);
+const bowGroup = new THREE.Group();
+bowGroup.position.set(0.25, 0.08, -0.45); // chest height, arm extended forward
+bowGroup.rotation.y = Math.PI / 2;
+bowGroup.rotation.z = 0.08; // slight outward tilt like real bow grip
+bowPivot.add(bowGroup);
+
+const bowCurve = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, -0.18, 0),
+  new THREE.Vector3(0.07, -0.09, 0),
+  new THREE.Vector3(0.09, 0, 0),
+  new THREE.Vector3(0.07,  0.09, 0),
+  new THREE.Vector3(0,  0.18, 0),
+]);
+bowGroup.add(new THREE.Mesh(
+  new THREE.TubeGeometry(bowCurve, 20, 0.012, 6, false),
+  new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.7, metalness: 0.1 })
+));
+// (string is added dynamically below)
+
+// arrowGroup pivot is at the nock (tail) so it sits on the string
+const arrowGroup = new THREE.Group();
+arrowGroup.position.set(-0.04, 0, 0); // string midpoint rest pos
+bowGroup.add(arrowGroup);
+
+// Shaft: nock at x=0, tip at x=0.5 (pointing forward toward target)
+const shaft = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.006, 0.006, 0.5, 6),
+  new THREE.MeshStandardMaterial({ color: 0xD2B48C, roughness: 0.8, metalness: 0.0 })
+);
+shaft.rotation.z = Math.PI / 2;
+shaft.position.set(0.25, 0, 0); // center of shaft offset so nock is at x=0
+arrowGroup.add(shaft);
+
+const tip = new THREE.Mesh(
+  new THREE.ConeGeometry(0.02, 0.06, 16),
+  new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.2, metalness: 0.9 })
+);
+tip.position.set(0.53, 0, 0); // tip at front
+tip.rotation.z = -Math.PI / 2;
+arrowGroup.add(tip);
+
+// Small nock indicator at tail
+const nock = new THREE.Mesh(
+  new THREE.SphereGeometry(0.008, 6, 6),
+  new THREE.MeshStandardMaterial({ color: 0x553311, roughness: 0.9, metalness: 0.0 })
+);
+nock.position.set(0, 0, 0);
+arrowGroup.add(nock);
+
+// Bowstring (dynamic, updated during animation)
+const stringMat = new THREE.LineBasicMaterial({ color: 0xdddddd });
+const stringPts = [new THREE.Vector3(0,-0.18,0), new THREE.Vector3(-0.04,0,0), new THREE.Vector3(0,0.18,0)];
+const stringGeo = new THREE.BufferGeometry().setFromPoints(stringPts);
+const stringLine = new THREE.Line(stringGeo, stringMat);
+bowGroup.add(stringLine);
+
+// Animation state
+let bowAnim = null; // null = idle, otherwise { t, phase }
+const BOW_PULL_DIST = 0.09; // how far back the string pulls
+let reloadTimer = 0; // counts down after firing before arrow reappears
+const RELOAD_TIME = 1.2;
+let arrowReady = true; // false while reloading
+
+function updateBowString(pullX) {
+  // pullX: how far back the string midpoint is (negative = pulled back toward archer)
+  const pts = stringGeo.attributes.position;
+  pts.setXYZ(0, 0, -0.18, 0);
+  pts.setXYZ(1, pullX, 0, 0);
+  pts.setXYZ(2, 0, 0.18, 0);
+  pts.needsUpdate = true;
+  // Nock of arrow tracks string midpoint
+  arrowGroup.position.x = pullX;
+}
+
+function startBowDraw() {
+  bowAnim = { t: 0, phase: 'pull' }; // pull → hold (until released)
+}
+
+function startBowAnim() {
+  // Called on release — if currently held at draw, go to release
+  if (bowAnim && bowAnim.phase === 'hold') {
+    bowAnim = { t: 0, phase: 'release' };
+  } else {
+    bowAnim = { t: 0, phase: 'pull' };
+  }
+}
+
+function tickBowAnim(dt) {
+  if (!bowAnim) return;
+  bowAnim.t += dt;
+
+  if (bowAnim.phase === 'pull') {
+    // Pull back over 0.25s
+    const p = Math.min(bowAnim.t / 0.25, 1);
+    updateBowString(-0.04 - BOW_PULL_DIST * p);
+    if (p >= 1) { bowAnim.phase = 'hold'; bowAnim.t = 0; }
+
+  } else if (bowAnim.phase === 'hold') {
+    // Stay fully drawn — wait for release signal (shoot() sets phase to release)
+    bowAnim.holdTime = (bowAnim.holdTime || 0) + dt;
+    updateBowString(-0.04 - BOW_PULL_DIST);
+
+  } else if (bowAnim.phase === 'release') {
+    // Snap forward over 0.06s with overshoot
+    const p = Math.min(bowAnim.t / 0.06, 1);
+    const ease = Math.sin(p * Math.PI); // ping forward then back
+    updateBowString(-0.04 + 0.05 * ease);
+    if (p >= 1) { bowAnim.phase = 'recover'; bowAnim.t = 0; }
+
+  } else if (bowAnim.phase === 'recover') {
+    // Settle back to rest over 0.15s
+    const p = Math.min(bowAnim.t / 0.15, 1);
+    updateBowString(-0.04 * (1 - p) + -0.04 * p); // stays at -0.04
+    if (p >= 1) {
+      updateBowString(-0.04);
+      bowAnim = null;
+    }
+  }
+}
+
+// ─── Reticle (HTML canvas overlay — always on top, works in VR split-screen) ──
+const reticleCanvas = document.createElement('canvas');
+reticleCanvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
+document.body.appendChild(reticleCanvas);
+const reticleCtx = reticleCanvas.getContext('2d');
+let reticleColor = '#ffffff';
+let reticleArcProgress = 0;
+
+function resizeReticleCanvas() {
+  reticleCanvas.width  = window.innerWidth  * window.devicePixelRatio;
+  reticleCanvas.height = window.innerHeight * window.devicePixelRatio;
+  reticleCanvas.style.width  = window.innerWidth  + 'px';
+  reticleCanvas.style.height = window.innerHeight + 'px';
+}
+resizeReticleCanvas();
+window.addEventListener('resize', resizeReticleCanvas);
+window.addEventListener('orientationchange', () => setTimeout(resizeReticleCanvas, 300));
+
+function drawReticle(cx, cy, color, arcP) {
+  const ctx = reticleCtx;
+  const dpr = window.devicePixelRatio;
+  const S = 10 * dpr; // arm length in px
+  const T = 1.8 * dpr; // thickness
+  const D = 3 * dpr;   // center gap
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = T;
+  ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.shadowBlur = 3 * dpr;
+
+  // horizontal bar
+  ctx.beginPath(); ctx.moveTo(cx - S, cy); ctx.lineTo(cx - D, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + D, cy); ctx.lineTo(cx + S, cy); ctx.stroke();
+  // vertical bar
+  ctx.beginPath(); ctx.moveTo(cx, cy - S); ctx.lineTo(cx, cy - D); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy + D); ctx.lineTo(cx + 0, cy + S); ctx.stroke();
+  // center dot
+  ctx.beginPath(); ctx.arc(cx, cy, T * 0.8, 0, Math.PI * 2); ctx.fill();
+
+  // arc progress ring (draw charge)
+  if (arcP > 0) {
+    const R = 7 * dpr;
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = T * 1.2;
+    ctx.shadowColor = '#ffaa00';
+    ctx.shadowBlur = 6 * dpr;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + arcP * Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function updateReticleArc(p) { reticleArcProgress = p; }
+function setReticleColor(hex) { reticleColor = hex === 0xffaa00 ? '#ffaa00' : '#ffffff'; }
+
+function projectBowToScreen(camera, halfW, fullH) {
+  // Project a point 5 units along bow aim dir into screen space
+  const dir = getBowAimDir();
+  const camPos = new THREE.Vector3();
+  camera.getWorldPosition(camPos);
+  const worldPt = camPos.clone().addScaledVector(dir, 5);
+  const ndc = worldPt.clone().project(camera);
+  // ndc.x/y in [-1,1], convert to canvas pixels
+  const sx = (ndc.x * 0.5 + 0.5) * halfW * 2;
+  const sy = (-ndc.y * 0.5 + 0.5) * fullH;
+  return { x: sx, y: sy, behind: ndc.z > 1 };
+}
+
+function renderReticle() {
+  const w = reticleCanvas.width, h = reticleCanvas.height;
+  reticleCtx.clearRect(0, 0, w, h);
+  if (joyconActive) {
+    // Crosshair follows bow aim on screen
+    if (vrMode) {
+      const pL = projectBowToScreen(camL, w / 2, h);
+      const pR = projectBowToScreen(camR, w / 2, h);
+      const M = 20;
+      // Clamp each crosshair to its own eye's half of the screen
+      if (!pL.behind) drawReticle(Math.max(M, Math.min(w * 0.5 - M, pL.x * 0.5)), Math.max(M, Math.min(h - M, pL.y)), reticleColor, reticleArcProgress);
+      if (!pR.behind) drawReticle(Math.max(w * 0.5 + M, Math.min(w - M, w * 0.5 + pR.x * 0.5)), Math.max(M, Math.min(h - M, pR.y)), reticleColor, reticleArcProgress);
+    } else {
+      const p = projectBowToScreen(camL, w, h);
+      if (!p.behind) drawReticle(p.x, p.y, reticleColor, reticleArcProgress);
+    }
+  } else {
+    // Phone: fixed at screen center
+    if (vrMode) {
+      drawReticle(w * 0.25, h * 0.5, reticleColor, reticleArcProgress);
+      drawReticle(w * 0.75, h * 0.5, reticleColor, reticleArcProgress);
+    } else {
+      drawReticle(w * 0.5, h * 0.5, reticleColor, reticleArcProgress);
+    }
+  }
+}
+
+// ─── Flash ring ───────────────────────────────────────────────────────────────
+const flashRingMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+const flashRing = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.6, 32), flashRingMat);
+scene.add(flashRing);
+
+// ─── Targets ─────────────────────────────────────────────────────────────────
+const targets = [];
+const targetMats = [
+  new THREE.MeshStandardMaterial({ color: 0xff2200, emissive: 0xff2200, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }),
+  new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }),
+  new THREE.MeshStandardMaterial({ color: 0x2288ff, emissive: 0x2288ff, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }),
+  new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffcc00, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }),
+  new THREE.MeshStandardMaterial({ color: 0xcc00ff, emissive: 0xcc00ff, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }),
+];
+
+function spawnTarget() {
+  const mesh = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.45 + Math.random() * 0.3, 0),
+    targetMats[Math.floor(Math.random() * targetMats.length)].clone()
+  );
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 6 + Math.random() * 8;
+  mesh.position.set(Math.cos(angle) * dist, 1.0 + Math.random() * 4, Math.sin(angle) * dist);
+  scene.add(mesh);
+  targets.push(mesh);
+}
+
+// ─── Particles ────────────────────────────────────────────────────────────────
+const particles = [];
+function spawnExplosion(pos, color) {
+  for (let i = 0; i < 14; i++) {
+    const p = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 4, 4),
+      new THREE.MeshBasicMaterial({ color, transparent: true })
+    );
+    p.position.copy(pos);
+    p.userData = {
+      vel: new THREE.Vector3((Math.random()-0.5)*0.18, (Math.random()-0.5)*0.18, (Math.random()-0.5)*0.18),
+      life: 1.0
+    };
+    scene.add(p);
+    particles.push(p);
+  }
+}
+
+// ─── Projectiles ──────────────────────────────────────────────────────────────
+const projectiles = [];
+function getBowAimDir() {
+  // Always fire along bow's world direction (local +X after base 90°Y rotation = forward)
+  const wq = new THREE.Quaternion();
+  bowGroup.getWorldQuaternion(wq);
+  return new THREE.Vector3(1, 0, 0).applyQuaternion(wq).normalize();
+}
+
+function fireArrow(power) {
+  if (!arrowReady) return; // still reloading
+  arrowReady = false;
+  reloadTimer = RELOAD_TIME;
+  const speed = 30 + (power || 0) * 270; // 30 min, 300 max
+  arrowGroup.visible = false; // arrow flies away
+
+  // Shoot from bow position, along the bow's actual aim direction
+  const origin = new THREE.Vector3();
+  bowGroup.getWorldPosition(origin);
+  const dir = getBowAimDir();
+
+  // Build projectile arrow oriented along dir
+  // Arrow is built along Y axis so we rotate Y → dir
+  const arrowQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+
+  const proj = new THREE.Group();
+  const s = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6),
+    new THREE.MeshStandardMaterial({ color: 0xD2B48C, roughness: 0.8, metalness: 0.0 })
+  );
+  proj.add(s);
+  const h = new THREE.Mesh(
+    new THREE.ConeGeometry(0.03, 0.08, 12),
+    new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.2, metalness: 0.9 })
+  );
+  h.position.set(0, 0.39, 0);
+  proj.add(h);
+  // Start right at the bow, fly fast so it visibly travels across the scene
+  proj.position.copy(origin);
+  proj.quaternion.copy(arrowQuat);
+  scene.add(proj);
+  projectiles.push({ mesh: proj, dir: dir.clone(), vel: dir.clone().multiplyScalar(speed), life: 5.0 });
+}
+
+// ─── Player ───────────────────────────────────────────────────────────────────
+const playerPos = new THREE.Vector3(0, 0.5, 0); // start on start pad
+let playerVelY = 0;
+let onGround = false;
+const MOVE_SPEED = 6.0;
+const BOUNDS = 50;
+const GRAVITY = -16;    // smooth arc gravity
+const JUMP_FORCE = 8;   // natural jump height
+const PLAYER_HEIGHT = -10; // no hard floor — fall into void triggers respawn
+
+function jump() {
+  if (onGround) { playerVelY = JUMP_FORCE; onGround = false; }
+}
+
+// ─── Map platforms ───────────────────────────────────────────────────────────
+// ─── Level: Futuristic Platformer ────────────────────────────────────────────
+// Max jump height ~1.5 units. Each step ≤1.3 units above previous.
+// Player starts at y=0 (platform top of y:-0.5,h:1 → top=0)
+const platforms = [
+  // ── Start pad (player spawns here) ───────────────────────────────────────
+  { x:  0,  y: -0.5, z:  0,  w: 10, h: 1.0, d:  8 },
+
+  // ── Gap 1: single stepping stone ─────────────────────────────────────────
+  { x:  0,  y: -0.5, z: -12, w:  4, h: 1.0, d:  4 },
+
+  // ── Platform 2: medium, slightly raised ──────────────────────────────────
+  { x:  0,  y:  0.3, z: -20, w:  8, h: 1.0, d:  6 },
+
+  // ── Gap 2: two stepping stones, side to side ─────────────────────────────
+  { x: -3,  y:  0.3, z: -28, w:  3, h: 1.0, d:  3 },
+  { x:  3,  y:  0.3, z: -33, w:  3, h: 1.0, d:  3 },
+
+  // ── Platform 3: large, raised more ───────────────────────────────────────
+  { x:  0,  y:  1.3, z: -41, w: 10, h: 1.0, d:  6 },
+
+  // ── Gap 3: three tight stepping stones going up ───────────────────────────
+  { x:  0,  y:  1.3, z: -49, w:  3, h: 1.0, d:  3 },
+  { x:  3,  y:  2.3, z: -54, w:  3, h: 1.0, d:  3 },
+  { x:  0,  y:  3.3, z: -59, w:  3, h: 1.0, d:  3 },
+
+  // ── Final platform: high up, goal ────────────────────────────────────────
+  { x:  0,  y:  3.3, z: -67, w: 12, h: 1.0, d:  8 },
+];
+
+const platformColors = [
+  0x1a44aa, // start pad
+  0x2255cc, // step 1
+  0x2266dd, // platform 2
+  0x3377ee, 0x3377ee, // gap 2 stones
+  0x3388ff, // platform 3
+  0x44aaff, 0x55bbff, 0x66ccff, // gap 3 rising stones
+  0x00eeff, // final platform - bright cyan
+];
+const platformMeshes = platforms.map((p, i) => {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(p.w, p.h, p.d),
+    new THREE.MeshStandardMaterial({ color: platformColors[i] || 0x1a44aa, roughness: 0.3, metalness: 0.8, emissive: platformColors[i] || 0x1a44aa, emissiveIntensity: 0.8 })
+  );
+  mesh.position.set(p.x, p.y, p.z);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  scene.add(mesh);
+  return { mesh, ...p };
+});
+
+
+// ─── Futuristic decorations — neon pillars on platforms ──────────────────────
+function addPillar(x, y, z, color) {
+  const pillar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 1.2, 8),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.0, roughness: 0.2, metalness: 0.8 })
+  );
+  pillar.position.set(x, y + 0.6, z);
+  scene.add(pillar);
+  const top = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1, 8, 8),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.0 })
+  );
+  top.position.set(x, y + 1.3, z);
+  scene.add(top);
+}
+// Pillars on start pad
+addPillar(-3, 0,  -2, 0x00ffff); addPillar(3, 0,  -2, 0x00ffff);
+addPillar(-3, 0,   2, 0x00ffff); addPillar(3, 0,   2, 0x00ffff);
+// Pillars on platform 2
+addPillar(-3, 0.3, -20, 0xff00ff); addPillar(3, 0.3, -20, 0xff00ff);
+// Pillars on platform 3
+addPillar(-3, 1.3, -41, 0x00ff88); addPillar(3, 1.3, -41, 0x00ff88);
+// Pillars on final platform
+addPillar(-4, 3.3, -67, 0xffaa00); addPillar(4, 3.3, -67, 0xffaa00);
+
+// ─── Fall / Respawn ───────────────────────────────────────────────────────────
+const FALL_DEATH_Y = -6;
+const SPAWN_POS = new THREE.Vector3(0, 0.5, 0); // back to start pad
+function checkFall() {
+  if (playerPos.y < FALL_DEATH_Y) {
+    playerPos.copy(SPAWN_POS);
+    playerVelY = 0;
+    onGround = true;
+    // Flash screen red briefly
+    const flash = document.createElement('div');
+    flash.style.cssText = 'position:fixed;inset:0;background:rgba(255,0,0,0.35);z-index:9998;pointer-events:none;transition:opacity 0.6s';
+    document.body.appendChild(flash);
+    requestAnimationFrame(() => { flash.style.opacity = '0'; setTimeout(() => flash.remove(), 700); });
+  }
+}
+
+// ─── Fullscreen ───────────────────────────────────────────────────────────────
+function enterFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  // Older iOS Safari's webkitRequestFullscreen doesn't return a promise, so
+  // guard both the sync throw AND the missing .catch.
+  if (req) {
+    try {
+      const p = req.call(el);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (_) {}
+  }
+  if (screen.orientation && screen.orientation.lock) {
+    try {
+      const p = screen.orientation.lock('landscape');
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (_) {}
+  }
+}
+function exitFullscreen() {
+  const ex = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+  if (ex) {
+    try {
+      const p = ex.call(document);
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (_) {}
+  }
+  if (screen.orientation && screen.orientation.unlock) {
+    try { screen.orientation.unlock(); } catch (_) {}
+  }
+}
+
+// ─── Auto fullscreen on landscape ────────────────────────────────────────────
+function isLandscape() {
+  return window.innerWidth > window.innerHeight;
+}
+function tryAutoFullscreen() {
+  if (isLandscape()) enterFullscreen();
+}
+// Try on load (covers home screen launch in landscape)
+window.addEventListener('load', () => setTimeout(tryAutoFullscreen, 300));
+// Try on rotate
+window.addEventListener('orientationchange', () => setTimeout(tryAutoFullscreen, 200));
+// Try on resize
+window.addEventListener('resize', tryAutoFullscreen);
+
+// ─── Start button ─────────────────────────────────────────────────────────────
+const startBtn = document.getElementById('startBtn');
+function updateVrToggleBtns() {
+  const label = vrMode ? '📱 Single' : '👓 VR Mode';
+  document.querySelectorAll('.vrToggleBtn').forEach(b => b.textContent = label);
+}
+function startGame(useVR) {
+  vrMode = useVR;
+  enterFullscreen();
+  startBtn.style.display = 'none';
+  document.getElementById('bottomBar').style.display = 'flex';
+  updateVrToggleBtns();
+  onResize();
+  startOrientation();
+}
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let score = 0;
+let gazeTarget = null, gazeProgress = 0;
+const GAZE_TIME = 1.8;
+
+function killTarget(t) {
+  spawnExplosion(t.position, t.material.color.getHex());
+  score += 10;
+  scene.remove(t);
+  const idx = targets.indexOf(t);
+  if (idx !== -1) targets.splice(idx, 1);
+  gazeTarget = null;
+  gazeProgress = 0;
+  document.querySelectorAll('#scoreDisplay, #scoreDisplayR').forEach(el => el.textContent = 'Score: ' + score);
+  spawnTarget();
+}
+
+function shoot() {
+  // power = 0..1 based on how long bow was held (max at 1.5s)
+  const holdTime = (bowAnim && bowAnim.holdTime) || 0;
+  const power = Math.min(holdTime / 1.5, 1);
+  bowAnim = { t: 0, phase: 'release' };
+  fireArrow(power);
+}
+
+// ─── Device orientation ───────────────────────────────────────────────────────
+let calibrationQuat = null;
+let rawQuat = new THREE.Quaternion();
+const _q0 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+const _ze = new THREE.Euler();
+const _zq = new THREE.Quaternion();
+
+let calibrationYaw = 0;
+
+function onOrientation(e) {
+  if (e.alpha === null) return;
+  _ze.set(
+    THREE.MathUtils.degToRad(e.beta),
+    THREE.MathUtils.degToRad(e.alpha),
+    THREE.MathUtils.degToRad(-e.gamma),
+    'YXZ'
+  );
+  _zq.setFromEuler(_ze).multiply(_q0);
+
+  // screen rotation offset — iPads report landscape as 0, phones report portrait as 0
+  let screenAngle = screen.orientation ? screen.orientation.angle : (window.orientation || 0);
+  const isIPad = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIPad) screenAngle = (screenAngle + 90) % 360;
+  _zq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), THREE.MathUtils.degToRad(-screenAngle)));
+
+  rawQuat.copy(_zq);
+
+  // Calibrate only yaw — extract yaw from first reading and subtract it
+  if (calibrationQuat === null) {
+    const e2 = new THREE.Euler().setFromQuaternion(_zq, 'YXZ');
+    calibrationYaw = e2.y;
+    calibrationQuat = true; // mark as done
+  }
+
+  // Apply only yaw offset so camera stays level
+  const yawOffset = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -calibrationYaw);
+  cameraRig.quaternion.copy(yawOffset).multiply(_zq);
+}
+
+function recalibrate() {
+  const e2 = new THREE.Euler().setFromQuaternion(rawQuat, 'YXZ');
+  calibrationYaw = e2.y;
+}
+
+// Request orientation permission (iOS needs this from a button/tap)
+function requestOrientation() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(s => { if (s === 'granted') window.addEventListener('deviceorientation', onOrientation); })
+      .catch(console.error);
+  } else {
+    window.addEventListener('deviceorientation', onOrientation);
+  }
+}
+
+// On iOS, DeviceOrientationEvent.requestPermission() must be called from a user gesture.
+// Show a prompt overlay; hide it once permission is granted.
+const orientPrompt = document.getElementById('orientPrompt');
+let orientationStarted = false;
+
+function startOrientation() {
+  if (orientationStarted) return;
+  orientationStarted = true;
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(s => {
+        if (s === 'granted') {
+          window.addEventListener('deviceorientation', onOrientation);
+          orientPrompt.style.display = 'none';
+        }
+      })
+      .catch(console.error);
+  } else {
+    // Android / desktop — no permission needed
+    window.addEventListener('deviceorientation', onOrientation);
+    orientPrompt.style.display = 'none';
+  }
+}
+
+// startOrientation() is called from the start button handler (handleStart).
+// Recenter button recalibrates after orientation is running.
+document.getElementById('recenter').addEventListener('click', () => {
+  if (!orientationStarted) startOrientation();
+  else recalibrate();
+});
+
+// ─── Gamepad ──────────────────────────────────────────────────────────────────
+let joyconActive = false;
+const connectedPads = {};
+const prevButtons = {};
+const DEAD = 0.14;
+const DRAW_BUTTONS = [0]; // A(0) draws/fires the bow
+const JUMP_BUTTONS = [1]; // B(1) jumps only
+const X_BUTTON = 2;
+const MINUS_BUTTON = 8;  // Select / −
+const PLUS_BUTTON  = 9;  // Start  / +
+let bowDrawn = false; // true while A is held
+let bowHandIndex = 1;
+
+// iOS Safari standalone: gamepadconnected doesn't fire reliably.
+// Force a scan on any touch/click so the controller gets picked up
+// as soon as the user interacts.
+function safeGetGamepads() {
+  try { return navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : []; }
+  catch(e) { return []; }
+}
+function scanGamepads() {
+  const pads = safeGetGamepads();
+  for (const gp of pads) {
+    if (!connectedPads[gp.index]) {
+      connectedPads[gp.index] = gp;
+      prevButtons[gp.index] = Array(gp.buttons.length).fill(false);
+      joyconActive = true;
+    }
+  }
+}
+document.addEventListener('touchstart', scanGamepads, { passive: true });
+document.addEventListener('click', scanGamepads);
+
+// Bow aiming — track explicit yaw and pitch angles from right stick
+let bowYaw = 0;   // left/right
+let bowPitch = 0; // up/down
+const BOW_AIM_SPEED = 1.8;
+const BOW_LIMIT = Math.PI / 2; // max 90 degrees in any direction
+
+window.addEventListener('gamepadconnected', e => {
+  connectedPads[e.gamepad.index] = e.gamepad;
+  prevButtons[e.gamepad.index] = Array(e.gamepad.buttons.length).fill(false);
+  joyconActive = true;
+});
+window.addEventListener('gamepaddisconnected', e => {
+  delete connectedPads[e.gamepad.index];
+  delete prevButtons[e.gamepad.index];
+  if (!Object.keys(connectedPads).length) joyconActive = false;
+});
+
+function pollGamepad(dt) {
+  const allPads = safeGetGamepads();
+  if (!allPads.length) { joyconActive = false; return; }
+
+  // Register any pads not yet in connectedPads (handles pre-connected controllers)
+  for (const gp of allPads) {
+    if (!connectedPads[gp.index]) {
+      connectedPads[gp.index] = gp;
+      prevButtons[gp.index] = Array(gp.buttons.length).fill(false);
+      joyconActive = true;
+    }
+    connectedPads[gp.index] = gp; // always refresh
+  }
+
+  const padA = allPads[0];
+
+
+
+  // ── Movement — LEFT stick (axes 0 & 1) ───────────────────────────────────
+  const mx = padA.axes[0] ?? 0;
+  const mz = padA.axes[1] ?? 0;
+  const camYaw = new THREE.Euler().setFromQuaternion(cameraRig.quaternion, 'YXZ').y;
+  const fwd   = new THREE.Vector3(-Math.sin(camYaw), 0, -Math.cos(camYaw));
+  const right = new THREE.Vector3( Math.cos(camYaw), 0, -Math.sin(camYaw));
+  if (Math.abs(mx) > DEAD) playerPos.addScaledVector(right, mx * MOVE_SPEED * dt);
+  if (Math.abs(mz) > DEAD) playerPos.addScaledVector(fwd,  -mz * MOVE_SPEED * dt);
+  playerPos.x = Math.max(-BOUNDS, Math.min(BOUNDS, playerPos.x));
+  playerPos.z = Math.max(-BOUNDS, Math.min(BOUNDS, playerPos.z));
+
+  // ── Right stick: X=aim L/R, Y=aim U/D ───────────────────────────────────
+  {
+    const rx = padA.axes[2] || 0;
+    const ry = padA.axes[3] || 0;
+    if (Math.abs(rx) > DEAD) bowYaw   -= rx * BOW_AIM_SPEED * dt;
+    if (Math.abs(ry) > DEAD) bowPitch -= ry * BOW_AIM_SPEED * dt;
+    bowYaw   = Math.max(-BOW_LIMIT, Math.min(BOW_LIMIT, bowYaw));
+    bowPitch = Math.max(-BOW_LIMIT, Math.min(BOW_LIMIT, bowPitch));
+  }
+
+  let aHeld = false, bPressed = false, xPressed = false, minusPressed = false, plusPressed = false;
+  for (const gp of allPads) {
+    if (!prevButtons[gp.index] || prevButtons[gp.index].length !== gp.buttons.length)
+      prevButtons[gp.index] = Array(gp.buttons.length).fill(false);
+    for (let bi = 0; bi < gp.buttons.length; bi++) {
+      const pressed = gp.buttons[bi].pressed || gp.buttons[bi].value > 0.5;
+      const justPressed = pressed && !prevButtons[gp.index][bi];
+      if (DRAW_BUTTONS.includes(bi) && pressed) aHeld = true;
+      if (justPressed && JUMP_BUTTONS.includes(bi)) bPressed = true;
+      if (justPressed && bi === X_BUTTON)     xPressed    = true;
+      if (justPressed && bi === MINUS_BUTTON) minusPressed = true;
+      if (justPressed && bi === PLUS_BUTTON)  plusPressed  = true;
+      prevButtons[gp.index][bi] = pressed;
+    }
+  }
+  if (bPressed) jump();
+  // X toggles UI
+  if (xPressed) {
+    const hud = document.getElementById('accessHud');
+    const hidden = hud.style.display === 'none';
+    hud.style.display = hidden ? 'flex' : 'none';
+    document.getElementById('bottomBar').style.display = hidden ? 'flex' : 'none';
+  }
+  if (minusPressed) setIpd(ipdMeters * 1000 - 1);
+  if (plusPressed)  setIpd(ipdMeters * 1000 + 1);
+
+  // A held: draw bow. A released after drawing: fire. Block if reloading.
+  if (aHeld && !bowDrawn && arrowReady) {
+    bowDrawn = true;
+    startBowDraw();
+  } else if (!aHeld && bowDrawn) {
+    bowDrawn = false;
+    if (arrowReady) shoot();
+  }
+
+}
+
+
+// ─── Touch controls (iPhone / no gamepad) ───────────────────────────────────
+// Tap-and-hold the canvas to draw the bow, release to fire.
+let touchDrawing = false;
+renderer.domElement.addEventListener('touchstart', e => {
+  if (!arrowReady) return;
+  touchDrawing = true;
+  startBowDraw();
+  e.preventDefault();
+}, { passive: false });
+renderer.domElement.addEventListener('touchend', e => {
+  if (touchDrawing) {
+    touchDrawing = false;
+    if (arrowReady) shoot();
+  }
+  e.preventDefault();
+}, { passive: false });
+renderer.domElement.addEventListener('touchcancel', () => {
+  touchDrawing = false;
+});
+// Prevent double-tap zoom / page scroll on iOS Safari (canvas only — don't
+// block the IPD slider or HUD buttons)
+document.addEventListener('gesturestart', e => e.preventDefault());
+renderer.domElement.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+// ─── Spawn targets ────────────────────────────────────────────────────────────
+for (let i = 0; i < 8; i++) spawnTarget();
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+const _camPos = new THREE.Vector3();
+const _camDir = new THREE.Vector3();
+const _retPos = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  pollGamepad(dt);
+  tickBowAnim(dt);
+
+  // ── Gravity & platform collision ─────────────────────────────────────────
+  const PR = 0.28; // player radius (horizontal)
+  const PH = 1.6;  // player height
+
+  // Apply gravity
+  playerVelY += GRAVITY * dt;
+  playerPos.y += playerVelY * dt;
+  onGround = false;
+
+  // Helper: is player horizontally inside platform (with radius)?
+  function inPlatXZ(p) {
+    return playerPos.x > p.x - p.w/2 - PR && playerPos.x < p.x + p.w/2 + PR &&
+           playerPos.z > p.z - p.d/2 - PR && playerPos.z < p.z + p.d/2 + PR;
+  }
+
+  // 1. Vertical collision — track which platforms player is standing on
+  const standingOn = new Set();
+  for (const p of platformMeshes) {
+    if (!inPlatXZ(p)) continue;
+    const topY = p.y + p.h / 2;
+    const botY = p.y - p.h / 2;
+    // Landing on top
+    if (playerVelY <= 0 && playerPos.y >= topY - 0.35 && playerPos.y < topY + 1.0) {
+      playerPos.y = topY;
+      playerVelY = 0;
+      onGround = true;
+      standingOn.add(p);
+    }
+    // Hitting ceiling
+    if (playerVelY > 0 && playerPos.y - PH < botY && playerPos.y - PH > botY - 0.5) {
+      playerPos.y = botY + PH;
+      playerVelY = 0;
+    }
+  }
+
+  // Hard floor
+  if (playerPos.y <= PLAYER_HEIGHT) {
+    playerPos.y = PLAYER_HEIGHT;
+    playerVelY = 0;
+    onGround = true;
+  }
+
+  // 2. Horizontal collision — skip platforms the player is standing on top of
+  for (const p of platformMeshes) {
+    if (standingOn.has(p)) continue; // already resolved vertically
+    const topY = p.y + p.h / 2;
+    const botY = p.y - p.h / 2;
+    // Only collide horizontally if player is inside the platform's vertical range
+    if (playerPos.y > topY || playerPos.y - PH < botY) continue;
+    if (!inPlatXZ(p)) continue;
+
+    // Push out on shallowest horizontal axis
+    const ox1 = (p.x + p.w/2 + PR) - playerPos.x; // push +x
+    const ox2 = playerPos.x - (p.x - p.w/2 - PR);  // push -x
+    const oz1 = (p.z + p.d/2 + PR) - playerPos.z;  // push +z
+    const oz2 = playerPos.z - (p.z - p.d/2 - PR);  // push -z
+    const minO = Math.min(ox1, ox2, oz1, oz2);
+    if      (minO === ox1) playerPos.x += ox1;
+    else if (minO === ox2) playerPos.x -= ox2;
+    else if (minO === oz1) playerPos.z += oz1;
+    else                   playerPos.z -= oz2;
+  }
+  checkFall();
+  cameraRig.position.copy(playerPos);
+
+  // bowPivot: always at player position, no rotation from head
+  bowPivot.position.copy(playerPos);
+  const _headEuler = new THREE.Euler().setFromQuaternion(cameraRig.quaternion, 'YXZ');
+
+  if (joyconActive) {
+    // Controller: bow pivot has NO head rotation — right stick fully controls aim
+    bowPivot.quaternion.identity();
+    const baseQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2 + bowYaw, bowPitch, 'YXZ'));
+    bowGroup.quaternion.copy(baseQ);
+  } else {
+    // Phone: bow follows head
+    bowPivot.quaternion.setFromEuler(new THREE.Euler(0, _headEuler.y, 0, 'YXZ'));
+    const baseQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, _headEuler.x, 'YXZ'));
+    bowGroup.quaternion.copy(baseQ);
+  }
+
+  // Reload timer — bring arrow back after RELOAD_TIME seconds
+  if (!arrowReady) {
+    reloadTimer -= dt;
+    if (reloadTimer <= 0) {
+      arrowReady = true;
+      arrowGroup.visible = true;
+      updateBowString(-0.04); // reset string to rest
+    }
+  }
+
+  for (const t of targets) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.003);
+    t.material.emissiveIntensity = 0.25 + pulse * 0.5;
+    t.rotation.y += dt * 0.4;
+    t.rotation.x += dt * 0.15;
+  }
+
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const proj = projectiles[i];
+    proj.vel.y -= 12.0 * dt; // gravity arc
+    proj.mesh.position.addScaledVector(proj.vel, dt);
+    // tilt arrow to follow arc
+    const arrowDir = proj.vel.clone().normalize();
+    proj.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), arrowDir);
+    proj.life -= dt;
+    let destroyed = false;
+    for (let j = targets.length - 1; j >= 0; j--) {
+      if (proj.mesh.position.distanceTo(targets[j].position) < 0.7) {
+        killTarget(targets[j]);
+        scene.remove(proj.mesh);
+        projectiles.splice(i, 1);
+        destroyed = true;
+        break;
+      }
+    }
+    if (!destroyed && proj.life <= 0) { scene.remove(proj.mesh); projectiles.splice(i, 1); }
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.position.add(p.userData.vel);
+    p.userData.life -= dt * 1.8;
+    p.material.opacity = Math.max(0, p.userData.life);
+    if (p.userData.life <= 0) { scene.remove(p); particles.splice(i, 1); }
+  }
+
+  // Reticle/raycaster: always cast from camera center so reticle stays in view
+  camL.getWorldPosition(_camPos);
+  _camDir.set(0, 0, -1).applyQuaternion(cameraRig.quaternion);
+
+
+  raycaster.set(_camPos, _camDir);
+
+const hits = raycaster.intersectObjects(targets);
+  const hit = hits.length > 0 ? hits[0].object : null;
+
+  flashRingMat.opacity = 0;
+
+  if (hit) {
+    if (hit !== gazeTarget) { gazeTarget = hit; gazeProgress = 0; }
+    reticleColor = joyconActive ? '#ffffff' : '#ffaa00';
+    if (!joyconActive) {
+      gazeProgress += dt / GAZE_TIME;
+      if (gazeProgress >= 1) {
+        gazeProgress = 0;
+        shoot();
+      }
+    }
+  } else {
+    if (gazeTarget) { gazeTarget = null; gazeProgress = 0; }
+    reticleColor = '#ffffff';
+    if (!joyconActive) gazeProgress = Math.max(0, gazeProgress - dt * 2);
+  }
+
+  updateReticleArc(joyconActive ? 0 : gazeProgress);
+  renderReticle();
+
+  renderer.clear();
+  const w = window.innerWidth, h = window.innerHeight;
+  if (vrMode) {
+    renderer.setScissorTest(true);
+    renderer.setViewport(0, 0, w/2, h); renderer.setScissor(0, 0, w/2, h);
+    renderer.render(scene, camL);
+    renderer.setViewport(w/2, 0, w/2, h); renderer.setScissor(w/2, 0, w/2, h);
+    // Flat mode: render the left camera on both sides so each eye sees the
+    // exact same image — no stereo disparity, no double vision.
+    renderer.render(scene, flatMode ? camL : camR);
+    renderer.setScissorTest(false);
+  } else {
+    renderer.setViewport(0, 0, w, h);
+    renderer.render(scene, camL);
+  }
+}
+
+let vrMode = false; // set by startGame()
+document.querySelectorAll('.vrToggleBtn').forEach(btn => btn.addEventListener('click', () => {
+  vrMode = !vrMode;
+  updateVrToggleBtns();
+  onResize();
+}));
+document.getElementById('recenter').addEventListener('click', () => {
+  if (!orientationStarted) startOrientation(); else recalibrate();
+});
+document.querySelectorAll('.recenterBtn').forEach(btn => btn.addEventListener('click', () => {
+  if (!orientationStarted) startOrientation(); else recalibrate();
+}));
+
+// ─── Accessibility controls (diplopia) ───────────────────────────────────────
+function syncIpdLabels(mm) {
+  document.querySelectorAll('#ipdLabel, #ipdLabelR').forEach(el => el.textContent = Math.round(mm) + 'mm');
+  document.querySelectorAll('#ipdSlider, #ipdSliderR').forEach(el => el.value = Math.round(mm));
+}
+function setIpdAndSync(mm) { setIpd(mm); syncIpdLabels(Math.max(0, Math.min(75, mm))); }
+
+document.getElementById('ipdSlider').addEventListener('input', e => setIpdAndSync(parseFloat(e.target.value)));
+document.getElementById('ipdSliderR').addEventListener('input', e => setIpdAndSync(parseFloat(e.target.value)));
+
+function updateFlatBtns() {
+  document.querySelectorAll('.flatToggleBtn').forEach(btn => btn.textContent = 'Flat: ' + (flatMode ? 'ON' : 'OFF'));
+}
+document.querySelectorAll('.flatToggleBtn').forEach(btn => btn.addEventListener('click', () => {
+  flatMode = !flatMode;
+  updateFlatBtns();
+}));
+
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+  renderer.setSize(w, h);
+  if (vrMode) {
+    camL.aspect = camR.aspect = (w / 2) / h;
+  } else {
+    camL.aspect = w / h;
+  }
+  camL.updateProjectionMatrix(); camR.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', () => setTimeout(onResize, 300));
+window.addEventListener('scroll', onResize, { passive: true });
+onResize(); // set on load
+
+animate();
+</script>
+</body>
+</html>
